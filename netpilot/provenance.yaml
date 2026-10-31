@@ -45,6 +45,19 @@ patches:
     path: netpilot/patches/0006-fail-closed-zero-delayed-queue-budget.patch
     sha256: f5f3c01c73db3584513adc345da838bef6035c95a59762c469a386c7ad201d97
 
+controlled_build:
+  source_gate_workflow: .github/workflows/netpilot-reviewed-source-gate.yml
+  windows_compile_workflow: .github/workflows/netpilot-windows-x64-compile-smoke.yml
+  platform: windows-2025
+  architecture: x64
+  candidate_execution_allowed: false
+  luajit_repository: https://github.com/openresty/luajit2
+  luajit_commit: dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc
+  cygwin_setup_version: '2.940'
+  cygwin_setup_sha512: fc46e3ead0312ea632251c16334b23caab31c9b38db30db4e5418b43ffeec5c003cc867b4166c8222a622ad107660e2ce6e3d855499d08e695dd13010f43a396
+  compile_evidence_required: true
+  release_artifact_admission: BLOCK
+
 windivert:
   state: SEPARATE_ADMISSION_BOUNDARY
   production_driver_load_allowed: false
