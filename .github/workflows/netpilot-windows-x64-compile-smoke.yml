@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact LuaJIT source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364a1c70bc # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: openresty/luajit2
           ref: dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc
