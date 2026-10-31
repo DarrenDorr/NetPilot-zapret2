@@ -1,0 +1,2 @@
+R43 Windows x64 compile-only validation trigger.
+No native execution is authorized by this file.
