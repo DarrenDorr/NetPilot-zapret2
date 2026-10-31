@@ -1,0 +1,56 @@
+schema_version: 1
+component: NetPilot-zapret2
+state: REVIEW
+production_admission: BLOCK
+may_execute: false
+may_integrate: false
+
+upstream:
+  repository: https://github.com/bol-van/zapret2
+  release_tag: v1.0.6
+  release_commit: 221d7dff24bfec0cd5ac0a5070b8acef2008af3d
+  release_tree: bc28b45ec32a648e6c39c31c1a3102e8954c6886
+  required_uaf_fix_commit: 4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d
+  required_uaf_fix_parent: 221d7dff24bfec0cd5ac0a5070b8acef2008af3d
+  required_uaf_fix_tree: 5c2a77786cc7089145abe2ca99bcc53a8ed7de15
+  license: MIT
+  license_path: docs/LICENSE.txt
+  license_blob_sha1: e4ce91f198f84c9a670ee922e5d41dc5cda47b5f
+
+authoritative_branch: netpilot/reviewed-v1.0.6-uaf-r43
+base_policy:
+  upstream_master_auto_sync: false
+  mutable_latest_allowed: false
+  arbitrary_upstream_head_allowed: false
+  reviewed_patch_queue_required: true
+  patch_order_strict: true
+
+patches:
+  - sequence: 1
+    path: netpilot/patches/0001-explicit-conntrack-feed-result.patch
+    sha256: af811313b37efc14f157bdc1744e9a74ea3c009b03fc1d518d9ab327a35facff
+  - sequence: 2
+    path: netpilot/patches/0002-bounded-conntrack-resource-result.patch
+    sha256: a3531211626ce602a3b5cab6c926a28e7a94ebdf2a475e3bcfa6829e64dea783
+  - sequence: 3
+    path: netpilot/patches/0003-bounded-delayed-queue-bytes.patch
+    sha256: 33fb3c7887e5e2cc0ad225d74318a9f2d5192179cf6b7671da75f75bd7335c68
+  - sequence: 4
+    path: netpilot/patches/0004-explicit-daemon-stdio-redirection.patch
+    sha256: f32e0c27393bcdfa30aa7e8c58749bb9e70e2a870350f5c3cfa429597a887777
+  - sequence: 5
+    path: netpilot/patches/0005-fail-closed-zero-conntrack-budget.patch
+    sha256: 67cbbfa656c47b7342a8c56ab178716e7890de0f05efc25eed2cc20b299c4ed1
+  - sequence: 6
+    path: netpilot/patches/0006-fail-closed-zero-delayed-queue-budget.patch
+    sha256: f5f3c01c73db3584513adc345da838bef6035c95a59762c469a386c7ad201d97
+
+windivert:
+  state: SEPARATE_ADMISSION_BOUNDARY
+  production_driver_load_allowed: false
+
+release_policy:
+  deterministic_build_required: true
+  output_hashes_required: true
+  provenance_required: true
+  runtime_admission_required: true
