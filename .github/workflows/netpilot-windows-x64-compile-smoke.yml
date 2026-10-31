@@ -7,6 +7,12 @@ on:
     paths:
       - 'netpilot/**'
       - '.github/workflows/netpilot-windows-x64-compile-smoke.yml'
+  pull_request:
+    branches:
+      - netpilot/reviewed-v1.0.6-uaf-r43
+    paths:
+      - 'netpilot/**'
+      - '.github/workflows/netpilot-windows-x64-compile-smoke.yml'
   workflow_dispatch:
 
 permissions:
