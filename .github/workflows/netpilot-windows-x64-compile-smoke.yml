@@ -1,0 +1,182 @@
+name: NetPilot zapret2 Windows x64 Compile Smoke
+
+on:
+  push:
+    branches:
+      - netpilot/reviewed-v1.0.6-uaf-r43
+    paths:
+      - 'netpilot/**'
+      - '.github/workflows/netpilot-windows-x64-compile-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64-compile-smoke:
+    name: Compile reviewed patched winws2 x64 without execution
+    runs-on: windows-2025
+    timeout-minutes: 25
+
+    steps:
+      - name: Configure Git line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+
+      - name: Checkout exact NetPilot fork revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact LuaJIT source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: openresty/luajit2
+          ref: dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc
+          fetch-depth: 1
+          path: luajit2
+          persist-credentials: false
+
+      - name: Verify reviewed base and apply exact patch queue
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = '4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d'
+          $release = '221d7dff24bfec0cd5ac0a5070b8acef2008af3d'
+          if ((git -C source rev-parse "$base^").Trim() -ne $release) { throw 'Unexpected reviewed base parent' }
+          if ((git -C source rev-parse "$base^{tree}").Trim() -ne '5c2a77786cc7089145abe2ca99bcc53a8ed7de15') { throw 'Unexpected reviewed base tree' }
+          git -C source merge-base --is-ancestor $base HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Reviewed base is not an ancestor of this revision' }
+          if ((git -C luajit2 rev-parse HEAD).Trim() -ne 'dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc') { throw 'Unexpected LuaJIT commit' }
+
+          $patches = [ordered]@{
+            '0001-explicit-conntrack-feed-result.patch' = 'af811313b37efc14f157bdc1744e9a74ea3c009b03fc1d518d9ab327a35facff'
+            '0002-bounded-conntrack-resource-result.patch' = 'a3531211626ce602a3b5cab6c926a28e7a94ebdf2a475e3bcfa6829e64dea783'
+            '0003-bounded-delayed-queue-bytes.patch' = '33fb3c7887e5e2cc0ad225d74318a9f2d5192179cf6b7671da75f75bd7335c68'
+            '0004-explicit-daemon-stdio-redirection.patch' = 'f32e0c27393bcdfa30aa7e8c58749bb9e70e2a870350f5c3cfa429597a887777'
+            '0005-fail-closed-zero-conntrack-budget.patch' = '67cbbfa656c47b7342a8c56ab178716e7890de0f05efc25eed2cc20b299c4ed1'
+            '0006-fail-closed-zero-delayed-queue-budget.patch' = 'f5f3c01c73db3584513adc345da838bef6035c95a59762c469a386c7ad201d97'
+          }
+          foreach ($patch in $patches.Keys) {
+            $path = Join-Path $PWD "source\netpilot\patches\$patch"
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+            if ($actual -ne $patches[$patch]) { throw "Patch SHA-256 mismatch: $patch" }
+            git -C source apply --check $path
+            if ($LASTEXITCODE -ne 0) { throw "Patch check failed: $patch" }
+            git -C source apply $path
+            if ($LASTEXITCODE -ne 0) { throw "Patch apply failed: $patch" }
+          }
+
+      - name: Install hash-pinned Cygwin bootstrap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .\source\netpilot\scripts\install-cygwin-2.940.ps1 | Out-File -FilePath cygwin-bootstrap.txt -Encoding ascii
+          if ($LASTEXITCODE -ne 0) { throw 'Cygwin bootstrap failed' }
+
+      - name: Build exact LuaJIT to isolated staging directory
+        id: luajit_build
+        continue-on-error: true
+        shell: C:\cygwin\bin\bash.exe -eo pipefail '{0}'
+        run: >-
+          export WORK="$(pwd -P)" &&
+          export PATH=/usr/bin:/bin &&
+          export CYGWIN_NOWINPATH=1 &&
+          export DEPS="$WORK/deps" &&
+          case "$WORK" in /cygdrive/*) ;; *) echo "Unexpected Cygwin physical path: $WORK" >&2; exit 1 ;; esac &&
+          test -d "$WORK/luajit2" &&
+          mkdir -p "$WORK/evidence" "$DEPS" &&
+          printf 'make=%s\ngcc=%s\n' "$(/usr/bin/make --version | head -n1)" "$(/usr/bin/gcc --version | head -n1)" > "$WORK/evidence/cygwin-build-tools.txt" &&
+          cd "$WORK/luajit2" &&
+          /usr/bin/make clean > "$WORK/evidence/luajit-clean.log" 2>&1 &&
+          /usr/bin/make BUILDMODE=static HOST_CC=/usr/bin/gcc TARGET_CC=/usr/bin/gcc XCFLAGS="-DLUAJIT_USE_SYSMALLOC -DLUAJIT_DISABLE_FFI -ffat-lto-objects" TARGET_CFLAGS="-Os -flto=auto -ffunction-sections -fdata-sections" TARGET_LDFLAGS="-Wl,--gc-sections -flto=auto" > "$WORK/evidence/luajit-build.log" 2>&1 &&
+          /usr/bin/make install PREFIX=/usr/local DESTDIR="$DEPS" > "$WORK/evidence/luajit-install.log" 2>&1 &&
+          test -f "$DEPS/usr/local/lib/libluajit-5.1.a"
+
+      - name: Compile patched winws2 x64 without running it
+        id: winws_build
+        if: steps.luajit_build.outcome == 'success'
+        continue-on-error: true
+        shell: C:\cygwin\bin\bash.exe -eo pipefail '{0}'
+        run: >-
+          export WORK="$(pwd -P)" &&
+          export PATH=/usr/bin:/bin &&
+          export CYGWIN_NOWINPATH=1 &&
+          export DEPS="$WORK/deps/usr/local" &&
+          test -d "$WORK/source" &&
+          test -f "$DEPS/lib/libluajit-5.1.a" &&
+          test -f "$DEPS/include/luajit-2.1/lua.h" &&
+          mkdir -p "$WORK/evidence" &&
+          cd "$WORK/source" &&
+          export CFLAGS="-DZAPRET_GH_VER=netpilot-r43-windows-compile-smoke -DZAPRET_GH_HASH=4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d" &&
+          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" clean > "$WORK/evidence/winws-clean.log" 2>&1 &&
+          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" cygwin > "$WORK/evidence/winws-build.log" 2>&1 &&
+          test -f nfq2/winws2.exe
+
+      - name: Record compile evidence and remove candidate executable
+        if: always()
+        shell: pwsh
+        env:
+          LUAJIT_BUILD_OUTCOME: ${{ steps.luajit_build.outcome }}
+          WINWS_BUILD_OUTCOME: ${{ steps.winws_build.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path evidence | Out-Null
+          if (Test-Path cygwin-bootstrap.txt) { Move-Item cygwin-bootstrap.txt evidence\cygwin-bootstrap.txt -Force }
+
+          $exe = Join-Path $PWD 'source\nfq2\winws2.exe'
+          $sha = 'not-produced'
+          $size = 0
+          if (Test-Path $exe) {
+            $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+            $size = (Get-Item -LiteralPath $exe).Length
+          }
+
+          @(
+            'schema_version=1'
+            'scope=netpilot-zapret2-windows-x64-compile-smoke-only'
+            "fork_revision=${{ github.sha }}"
+            'reviewed_upstream_base=4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d'
+            'luajit_commit=dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc'
+            'patchset=0001-0006'
+            "luajit_build_outcome=$env:LUAJIT_BUILD_OUTCOME"
+            "winws_build_outcome=$env:WINWS_BUILD_OUTCOME"
+            "winws2_sha256=$sha"
+            "winws2_size=$size"
+            'candidate_executed=false'
+            'windivert_driver_loaded=false'
+            'production_admission=BLOCK'
+          ) | Out-File evidence\windows-x64-compile-smoke.txt -Encoding ascii
+
+          if (Test-Path $exe) { Remove-Item -LiteralPath $exe -Force }
+          if (Test-Path $exe) { throw 'Candidate executable was not removed' }
+
+          Get-ChildItem evidence -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Out-File evidence\SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload text evidence only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: netpilot-zapret2-windows-x64-compile-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce compile success after evidence upload
+        if: always()
+        shell: pwsh
+        env:
+          LUAJIT_BUILD_OUTCOME: ${{ steps.luajit_build.outcome }}
+          WINWS_BUILD_OUTCOME: ${{ steps.winws_build.outcome }}
+        run: |
+          if ($env:LUAJIT_BUILD_OUTCOME -ne 'success') { throw "LuaJIT build outcome: $env:LUAJIT_BUILD_OUTCOME" }
+          if ($env:WINWS_BUILD_OUTCOME -ne 'success') { throw "winws2 compile outcome: $env:WINWS_BUILD_OUTCOME" }
+          Write-Host 'COMPILE_ONLY=PASS'
+          Write-Host 'CANDIDATE_EXECUTED=false'
+          Write-Host 'WINDIVERT_DRIVER_LOADED=false'
+          Write-Host 'PRODUCTION_ADMISSION=BLOCK'
