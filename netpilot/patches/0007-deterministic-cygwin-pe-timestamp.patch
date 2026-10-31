@@ -1,0 +1,12 @@
+diff --git a/nfq2/Makefile b/nfq2/Makefile
+--- a/nfq2/Makefile
++++ b/nfq2/Makefile
+@@ -14,7 +14,7 @@
+ LDFLAGS_PIE = -pie
+ LDFLAGS += -flto=auto -Wl,--gc-sections $(LDFLAGS_PIE)
+ LDFLAGS_ANDROID = -llog
+-LDFLAGS_CYGWIN = -Wl,--build-id=none
++LDFLAGS_CYGWIN = -Wl,--build-id=none -Wl,--no-insert-timestamp
+ STRIPP=-s
+ LIBS =
+ LIBS_LINUX = -lz -lnetfilter_queue -lnfnetlink -lmnl -lm

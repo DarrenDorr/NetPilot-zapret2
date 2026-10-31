@@ -64,6 +64,7 @@ jobs:
             '0004-explicit-daemon-stdio-redirection.patch' = 'f32e0c27393bcdfa30aa7e8c58749bb9e70e2a870350f5c3cfa429597a887777'
             '0005-fail-closed-zero-conntrack-budget.patch' = '67cbbfa656c47b7342a8c56ab178716e7890de0f05efc25eed2cc20b299c4ed1'
             '0006-fail-closed-zero-delayed-queue-budget.patch' = 'f5f3c01c73db3584513adc345da838bef6035c95a59762c469a386c7ad201d97'
+            '0007-deterministic-cygwin-pe-timestamp.patch' = '4cf9fdd6c43085fcb5be740af0daab21a7c3a09914b3a7b28765b7f451d07e49'
           }
           foreach ($patch in $patches.Keys) {
             $path = Join-Path $PWD "source\netpilot\patches\$patch"
@@ -90,18 +91,19 @@ jobs:
           export WORK="$(pwd -P)" &&
           export PATH=/usr/bin:/bin &&
           export CYGWIN_NOWINPATH=1 &&
+          export SOURCE_DATE_EPOCH=1792656402 &&
           export DEPS="$WORK/deps" &&
           case "$WORK" in /cygdrive/*) ;; *) echo "Unexpected Cygwin physical path: $WORK" >&2; exit 1 ;; esac &&
           test -d "$WORK/luajit2" &&
           mkdir -p "$WORK/evidence" "$DEPS" &&
-          printf 'make=%s\ngcc=%s\n' "$(/usr/bin/make --version | head -n1)" "$(/usr/bin/gcc --version | head -n1)" > "$WORK/evidence/cygwin-build-tools.txt" &&
+          printf 'make=%s\ngcc=%s\nsource_date_epoch=%s\n' "$(/usr/bin/make --version | head -n1)" "$(/usr/bin/gcc --version | head -n1)" "$SOURCE_DATE_EPOCH" > "$WORK/evidence/cygwin-build-tools.txt" &&
           cd "$WORK/luajit2" &&
           /usr/bin/make clean > "$WORK/evidence/luajit-clean.log" 2>&1 &&
           /usr/bin/make BUILDMODE=static HOST_CC=/usr/bin/gcc TARGET_CC=/usr/bin/gcc XCFLAGS="-DLUAJIT_USE_SYSMALLOC -DLUAJIT_DISABLE_FFI -ffat-lto-objects" TARGET_CFLAGS="-Os -flto=auto -ffunction-sections -fdata-sections" TARGET_LDFLAGS="-Wl,--gc-sections -flto=auto" > "$WORK/evidence/luajit-build.log" 2>&1 &&
           /usr/bin/make install PREFIX=/usr/local DESTDIR="$DEPS" > "$WORK/evidence/luajit-install.log" 2>&1 &&
           test -f "$DEPS/usr/local/lib/libluajit-5.1.a"
 
-      - name: Compile patched winws2 x64 without running it
+      - name: Compile patched winws2 twice and require identical SHA-256
         id: winws_build
         if: steps.luajit_build.outcome == 'success'
         continue-on-error: true
@@ -110,6 +112,7 @@ jobs:
           export WORK="$(pwd -P)" &&
           export PATH=/usr/bin:/bin &&
           export CYGWIN_NOWINPATH=1 &&
+          export SOURCE_DATE_EPOCH=1792656402 &&
           export DEPS="$WORK/deps/usr/local" &&
           test -d "$WORK/source" &&
           test -f "$DEPS/lib/libluajit-5.1.a" &&
@@ -117,9 +120,19 @@ jobs:
           mkdir -p "$WORK/evidence" &&
           cd "$WORK/source" &&
           export CFLAGS="-DZAPRET_GH_VER=netpilot-r43-windows-compile-smoke -DZAPRET_GH_HASH=4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d" &&
-          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" clean > "$WORK/evidence/winws-clean.log" 2>&1 &&
-          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" cygwin > "$WORK/evidence/winws-build.log" 2>&1 &&
-          test -f nfq2/winws2.exe
+          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" clean > "$WORK/evidence/winws-clean-pass1.log" 2>&1 &&
+          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" cygwin > "$WORK/evidence/winws-build-pass1.log" 2>&1 &&
+          test -f nfq2/winws2.exe &&
+          first_hash="$(sha256sum nfq2/winws2.exe | awk '{print $1}')" &&
+          first_size="$(stat -c '%s' nfq2/winws2.exe)" &&
+          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" clean > "$WORK/evidence/winws-clean-pass2.log" 2>&1 &&
+          /usr/bin/make -C nfq2 CC=/usr/bin/gcc LUA_JIT=1 LUA_CFLAGS="-I$DEPS/include/luajit-2.1" LUA_LIB="-L$DEPS/lib -lluajit-5.1" cygwin > "$WORK/evidence/winws-build-pass2.log" 2>&1 &&
+          test -f nfq2/winws2.exe &&
+          second_hash="$(sha256sum nfq2/winws2.exe | awk '{print $1}')" &&
+          second_size="$(stat -c '%s' nfq2/winws2.exe)" &&
+          printf 'pass1_sha256=%s\npass1_size=%s\npass2_sha256=%s\npass2_size=%s\n' "$first_hash" "$first_size" "$second_hash" "$second_size" > "$WORK/evidence/deterministic-rebuild.txt" &&
+          test "$first_hash" = "$second_hash" &&
+          test "$first_size" = "$second_size"
 
       - name: Record compile evidence and remove candidate executable
         if: always()
@@ -141,12 +154,15 @@ jobs:
           }
 
           @(
-            'schema_version=1'
+            'schema_version=2'
             'scope=netpilot-zapret2-windows-x64-compile-smoke-only'
             "fork_revision=${{ github.sha }}"
             'reviewed_upstream_base=4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d'
             'luajit_commit=dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc'
-            'patchset=0001-0006'
+            'patchset=0001-0007'
+            'source_date_epoch=1792656402'
+            'pe_timestamp_insertion=disabled'
+            'deterministic_two_pass_sha256_equality_required=true'
             "luajit_build_outcome=$env:LUAJIT_BUILD_OUTCOME"
             "winws_build_outcome=$env:WINWS_BUILD_OUTCOME"
             "winws2_sha256=$sha"
@@ -176,7 +192,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Enforce compile success after evidence upload
+      - name: Enforce compile and deterministic rebuild success after evidence upload
         if: always()
         shell: pwsh
         env:
@@ -184,8 +200,9 @@ jobs:
           WINWS_BUILD_OUTCOME: ${{ steps.winws_build.outcome }}
         run: |
           if ($env:LUAJIT_BUILD_OUTCOME -ne 'success') { throw "LuaJIT build outcome: $env:LUAJIT_BUILD_OUTCOME" }
-          if ($env:WINWS_BUILD_OUTCOME -ne 'success') { throw "winws2 compile outcome: $env:WINWS_BUILD_OUTCOME" }
+          if ($env:WINWS_BUILD_OUTCOME -ne 'success') { throw "winws2 deterministic build outcome: $env:WINWS_BUILD_OUTCOME" }
           Write-Host 'COMPILE_ONLY=PASS'
+          Write-Host 'DETERMINISTIC_TWO_PASS_SHA256=PASS'
           Write-Host 'CANDIDATE_EXECUTED=false'
           Write-Host 'WINDIVERT_DRIVER_LOADED=false'
           Write-Host 'PRODUCTION_ADMISSION=BLOCK'

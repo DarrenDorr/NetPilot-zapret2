@@ -51,6 +51,7 @@ jobs:
           f32e0c27393bcdfa30aa7e8c58749bb9e70e2a870350f5c3cfa429597a887777  netpilot/patches/0004-explicit-daemon-stdio-redirection.patch
           67cbbfa656c47b7342a8c56ab178716e7890de0f05efc25eed2cc20b299c4ed1  netpilot/patches/0005-fail-closed-zero-conntrack-budget.patch
           f5f3c01c73db3584513adc345da838bef6035c95a59762c469a386c7ad201d97  netpilot/patches/0006-fail-closed-zero-delayed-queue-budget.patch
+          4cf9fdd6c43085fcb5be740af0daab21a7c3a09914b3a7b28765b7f451d07e49  netpilot/patches/0007-deterministic-cygwin-pe-timestamp.patch
           EOF
           sha256sum --check /tmp/netpilot-zapret2-patches.sha256
 
@@ -58,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for patch in netpilot/patches/000{1,2,3,4,5,6}-*.patch; do
+          for patch in netpilot/patches/000{1,2,3,4,5,6,7}-*.patch; do
             echo "Checking and applying ${patch}"
             git apply --check "$patch"
             git apply "$patch"
@@ -68,6 +69,7 @@ jobs:
           expected="$(mktemp)"
           actual="$(mktemp)"
           cat > "$expected" <<'EOF'
+          nfq2/Makefile
           nfq2/conntrack.c
           nfq2/conntrack.h
           nfq2/desync.c
@@ -88,6 +90,7 @@ jobs:
           grep -Fx 'may_execute: false' netpilot/provenance.yaml
           grep -Fx 'may_integrate: false' netpilot/provenance.yaml
           grep -Fx '  production_driver_load_allowed: false' netpilot/provenance.yaml
+          grep -Fx '  deterministic_two_pass_sha256_equality_required: true' netpilot/provenance.yaml
           echo 'SOURCE_GATE=PASS'
           echo 'NATIVE_EXECUTION=NOT_PERFORMED'
           echo 'WINDIVERT_DRIVER_LOAD=NOT_PERFORMED'
