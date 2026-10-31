@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact LuaJIT source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364a1c70bc # v4.2.2
         with:
           repository: openresty/luajit2
           ref: dcc9c9ee67e1a5d3d636bd7745e95ddb4a1c70bc
@@ -159,10 +159,13 @@ jobs:
           if (Test-Path $exe) { Remove-Item -LiteralPath $exe -Force }
           if (Test-Path $exe) { throw 'Candidate executable was not removed' }
 
-          Get-ChildItem evidence -File | Sort-Object Name | ForEach-Object {
-            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
-            "$hash  $($_.Name)"
-          } | Out-File evidence\SHA256SUMS.txt -Encoding ascii
+          Get-ChildItem evidence -File |
+            Where-Object Name -ne 'SHA256SUMS.txt' |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            } | Out-File evidence\SHA256SUMS.txt -Encoding ascii
 
       - name: Upload text evidence only
         if: always()
