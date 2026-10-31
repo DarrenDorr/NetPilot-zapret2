@@ -1,0 +1,94 @@
+name: NetPilot Reviewed zapret2 Source Gate
+
+on:
+  push:
+    branches:
+      - netpilot/reviewed-v1.0.6-uaf-r43
+    paths:
+      - 'netpilot/**'
+      - '.github/workflows/netpilot-reviewed-source-gate.yml'
+  pull_request:
+    branches:
+      - netpilot/reviewed-v1.0.6-uaf-r43
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reviewed-source-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact fork revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify pinned upstream ancestry and license identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          release='221d7dff24bfec0cd5ac0a5070b8acef2008af3d'
+          base='4a33055448ce5f4e7acc704e1fbe0d8a8a6aa08d'
+          base_tree='5c2a77786cc7089145abe2ca99bcc53a8ed7de15'
+          license_blob='e4ce91f198f84c9a670ee922e5d41dc5cda47b5f'
+
+          test "$(git rev-parse "${base}^")" = "$release"
+          test "$(git rev-parse "${base}^{tree}")" = "$base_tree"
+          test "$(git rev-parse "${base}:docs/LICENSE.txt")" = "$license_blob"
+          git merge-base --is-ancestor "$base" HEAD
+
+      - name: Verify exact NetPilot patch identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/netpilot-zapret2-patches.sha256 <<'EOF'
+          af811313b37efc14f157bdc1744e9a74ea3c009b03fc1d518d9ab327a35facff  netpilot/patches/0001-explicit-conntrack-feed-result.patch
+          a3531211626ce602a3b5cab6c926a28e7a94ebdf2a475e3bcfa6829e64dea783  netpilot/patches/0002-bounded-conntrack-resource-result.patch
+          33fb3c7887e5e2cc0ad225d74318a9f2d5192179cf6b7671da75f75bd7335c68  netpilot/patches/0003-bounded-delayed-queue-bytes.patch
+          f32e0c27393bcdfa30aa7e8c58749bb9e70e2a870350f5c3cfa429597a887777  netpilot/patches/0004-explicit-daemon-stdio-redirection.patch
+          67cbbfa656c47b7342a8c56ab178716e7890de0f05efc25eed2cc20b299c4ed1  netpilot/patches/0005-fail-closed-zero-conntrack-budget.patch
+          f5f3c01c73db3584513adc345da838bef6035c95a59762c469a386c7ad201d97  netpilot/patches/0006-fail-closed-zero-delayed-queue-budget.patch
+          EOF
+          sha256sum --check /tmp/netpilot-zapret2-patches.sha256
+
+      - name: Verify ordered patch applicability without native execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          for patch in netpilot/patches/000{1,2,3,4,5,6}-*.patch; do
+            echo "Checking and applying ${patch}"
+            git apply --check "$patch"
+            git apply "$patch"
+          done
+          git diff --check
+
+          expected="$(mktemp)"
+          actual="$(mktemp)"
+          cat > "$expected" <<'EOF'
+          nfq2/conntrack.c
+          nfq2/conntrack.h
+          nfq2/desync.c
+          nfq2/lua.c
+          nfq2/packet_queue.c
+          nfq2/packet_queue.h
+          nfq2/sec.c
+          EOF
+          git diff --name-only | sort > "$actual"
+          sort -o "$expected" "$expected"
+          diff -u "$expected" "$actual"
+
+      - name: Preserve production block
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fx 'production_admission: BLOCK' netpilot/provenance.yaml
+          grep -Fx 'may_execute: false' netpilot/provenance.yaml
+          grep -Fx 'may_integrate: false' netpilot/provenance.yaml
+          grep -Fx '  production_driver_load_allowed: false' netpilot/provenance.yaml
+          echo 'SOURCE_GATE=PASS'
+          echo 'NATIVE_EXECUTION=NOT_PERFORMED'
+          echo 'WINDIVERT_DRIVER_LOAD=NOT_PERFORMED'
+          echo 'PRODUCTION_ADMISSION=BLOCK'
